@@ -1,17 +1,35 @@
 from fastapi.testclient import TestClient
 
-from app.backend.routes.committee import router
+from app.backend.routes import committee
+
+
+def _patch_empty_workflow(monkeypatch) -> None:
+    class FakeAgent:
+        def invoke(self, state):
+            return {"data": {"analyst_signals": {}}}
+
+    class FakeWorkflow:
+        def compile(self):
+            return FakeAgent()
+
+    monkeypatch.setattr(
+        committee,
+        "create_workflow",
+        lambda selected_analysts: FakeWorkflow(),
+    )
 
 
 def _client() -> TestClient:
     from fastapi import FastAPI
 
     app = FastAPI()
-    app.include_router(router)
+    app.include_router(committee.router)
     return TestClient(app)
 
 
-def test_committee_run_accepts_minimal_request() -> None:
+def test_committee_run_accepts_minimal_request(monkeypatch) -> None:
+    _patch_empty_workflow(monkeypatch)
+
     response = _client().post(
         "/committee/run",
         json={
@@ -25,7 +43,7 @@ def test_committee_run_accepts_minimal_request() -> None:
     body = response.json()
     assert body["run_status"] == "ok"
     assert body["signals"] == []
-    assert body["agents_run"] == []
+    assert body["agents_run"] == ["warren_buffett", "ben_graham", "peter_lynch"]
     assert body["cost_breakdown"]["total_usd"] == 0.0
 
 
@@ -42,7 +60,9 @@ def test_committee_run_rejects_empty_tickers() -> None:
     assert response.status_code == 400
 
 
-def test_committee_run_propagates_evidence_bundle_sha256() -> None:
+def test_committee_run_propagates_evidence_bundle_sha256(monkeypatch) -> None:
+    _patch_empty_workflow(monkeypatch)
+
     response = _client().post(
         "/committee/run",
         json={
