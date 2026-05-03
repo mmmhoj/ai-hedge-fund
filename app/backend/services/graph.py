@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from contextvars import copy_context
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, StateGraph
 
@@ -132,9 +133,15 @@ def create_graph(graph_nodes: list, graph_edges: list) -> StateGraph:
 async def run_graph_async(graph, portfolio, tickers, start_date, end_date, model_name, model_provider, request=None):
     """Async wrapper for run_graph to work with asyncio."""
     # Use run_in_executor to run the synchronous function in a separate thread
-    # so it doesn't block the event loop
+    # so it doesn't block the event loop. copy_context propagates use_bundle()
+    # and track_costs() ContextVars set by the route handler.
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, lambda: run_graph(graph, portfolio, tickers, start_date, end_date, model_name, model_provider, request))  # Use default executor
+    context = copy_context()
+    result = await loop.run_in_executor(
+        None,
+        context.run,
+        lambda: run_graph(graph, portfolio, tickers, start_date, end_date, model_name, model_provider, request),
+    )
     return result
 
 

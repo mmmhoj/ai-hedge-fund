@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import asyncio
+import json
 
 from app.backend.database import get_db
 from app.backend.models.schemas import ErrorResponse, HedgeFundRequest, BacktestRequest, BacktestDayResult, BacktestPerformanceMetrics
@@ -10,6 +11,8 @@ from app.backend.services.graph import create_graph, parse_hedge_fund_response, 
 from app.backend.services.portfolio import create_portfolio
 from app.backend.services.backtest_service import BacktestService
 from app.backend.services.api_key_service import ApiKeyService
+from src.tools.cost_tracker import track_costs
+from src.tools.evidence_bundle_context import use_bundle
 from src.utils.progress import progress
 from src.utils.analysts import get_agents_list
 
@@ -75,66 +78,72 @@ async def run(request_data: HedgeFundRequest, request: Request, db: Session = De
             progress.register_handler(progress_handler)
 
             try:
-                # Start the graph execution in a background task
-                run_task = asyncio.create_task(
-                    run_graph_async(
-                        graph=graph,
-                        portfolio=portfolio,
-                        tickers=request_data.tickers,
-                        start_date=request_data.start_date,
-                        end_date=request_data.end_date,
-                        model_name=request_data.model_name,
-                        model_provider=model_provider,
-                        request=request_data,  # Pass the full request for agent-specific model access
+                with use_bundle(request_data.evidence_bundle), track_costs() as tracker:
+                    # Start the graph execution in a background task
+                    run_task = asyncio.create_task(
+                        run_graph_async(
+                            graph=graph,
+                            portfolio=portfolio,
+                            tickers=request_data.tickers,
+                            start_date=request_data.start_date,
+                            end_date=request_data.end_date,
+                            model_name=request_data.model_name,
+                            model_provider=model_provider,
+                            request=request_data,  # Pass the full request for agent-specific model access
+                        )
                     )
-                )
-                
-                # Start the disconnect detection task
-                disconnect_task = asyncio.create_task(wait_for_disconnect())
-                
-                # Send initial message
-                yield StartEvent().to_sse()
 
-                # Stream progress updates until run_task completes or client disconnects
-                while not run_task.done():
-                    # Check if client disconnected
-                    if disconnect_task.done():
-                        print("Client disconnected, cancelling hedge fund execution")
-                        run_task.cancel()
+                    # Start the disconnect detection task
+                    disconnect_task = asyncio.create_task(wait_for_disconnect())
+
+                    # Send initial message
+                    yield StartEvent().to_sse()
+
+                    # Stream progress updates until run_task completes or client disconnects
+                    while not run_task.done():
+                        # Check if client disconnected
+                        if disconnect_task.done():
+                            print("Client disconnected, cancelling hedge fund execution")
+                            run_task.cancel()
+                            try:
+                                await run_task
+                            except asyncio.CancelledError:
+                                pass
+                            return
+
+                        # Either get a progress update or wait a bit
                         try:
-                            await run_task
-                        except asyncio.CancelledError:
+                            event = await asyncio.wait_for(progress_queue.get(), timeout=1.0)
+                            yield event.to_sse()
+                        except asyncio.TimeoutError:
+                            # Just continue the loop
                             pass
+
+                    # Get the final result
+                    try:
+                        result = await run_task
+                    except asyncio.CancelledError:
+                        print("Task was cancelled")
                         return
 
-                    # Either get a progress update or wait a bit
-                    try:
-                        event = await asyncio.wait_for(progress_queue.get(), timeout=1.0)
-                        yield event.to_sse()
-                    except asyncio.TimeoutError:
-                        # Just continue the loop
-                        pass
+                    if not result or not result.get("messages"):
+                        yield ErrorEvent(message="Failed to generate hedge fund decisions").to_sse()
+                        return
 
-                # Get the final result
-                try:
-                    result = await run_task
-                except asyncio.CancelledError:
-                    print("Task was cancelled")
-                    return
+                    # Send the final result
+                    final_data = CompleteEvent(
+                        data={
+                            "decisions": parse_hedge_fund_response(result.get("messages", [])[-1].content),
+                            "analyst_signals": result.get("data", {}).get("analyst_signals", {}),
+                            "current_prices": result.get("data", {}).get("current_prices", {}),
+                        }
+                    )
+                    yield final_data.to_sse()
 
-                if not result or not result.get("messages"):
-                    yield ErrorEvent(message="Failed to generate hedge fund decisions").to_sse()
-                    return
-
-                # Send the final result
-                final_data = CompleteEvent(
-                    data={
-                        "decisions": parse_hedge_fund_response(result.get("messages", [])[-1].content),
-                        "analyst_signals": result.get("data", {}).get("analyst_signals", {}),
-                        "current_prices": result.get("data", {}).get("current_prices", {}),
-                    }
-                )
-                yield final_data.to_sse()
+                    yield (
+                        "event: cost\n"
+                        f"data: {json.dumps({'total_usd': tracker.total_usd, 'by_agent': tracker.by_agent_usd()})}\n\n"
+                    )
 
             except asyncio.CancelledError:
                 print("Event generator cancelled")

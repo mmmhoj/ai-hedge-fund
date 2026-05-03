@@ -132,6 +132,7 @@ class HedgeFundRequest(BaseHedgeFundRequest):
     end_date: Optional[str] = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
     start_date: Optional[str] = None
     initial_cash: float = 100000.0
+    evidence_bundle: Optional[Dict[str, Any]] = None
 
     def get_start_date(self) -> str:
         """Calculate start date if not provided"""
