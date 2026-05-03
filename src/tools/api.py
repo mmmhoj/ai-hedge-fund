@@ -21,6 +21,7 @@ from src.data.models import (
     InsiderTradeResponse,
     CompanyFactsResponse,
 )
+from src.tools.evidence_bundle_context import _resolve_bundle
 from src.utils.ticker import is_korean_ticker
 
 # Global cache instance
@@ -69,12 +70,13 @@ def get_prices(
     evidence_bundle: dict | None = None,
 ) -> list[Price]:
     """Fetch price data from cache or API."""
+    bundle = _resolve_bundle(evidence_bundle)
     if is_korean_ticker(ticker):
         from src.tools.api_kr import get_prices_kr
-        return get_prices_kr(ticker, start_date, end_date, evidence_bundle=evidence_bundle)
+        return get_prices_kr(ticker, start_date, end_date, evidence_bundle=bundle)
 
-    if evidence_bundle is not None:
-        bundle_prices = evidence_bundle.get("prices", {})
+    if bundle is not None:
+        bundle_prices = bundle.get("prices", {})
         if ticker in bundle_prices:
             return [Price(**row) for row in bundle_prices[ticker]]
 
@@ -121,14 +123,15 @@ def get_financial_metrics(
     evidence_bundle: dict | None = None,
 ) -> list[FinancialMetrics]:
     """Fetch financial metrics from cache or API."""
+    bundle = _resolve_bundle(evidence_bundle)
     if is_korean_ticker(ticker):
         from src.tools.api_kr import get_financial_metrics_kr
         return get_financial_metrics_kr(
-            ticker, end_date, period=period, limit=limit, evidence_bundle=evidence_bundle
+            ticker, end_date, period=period, limit=limit, evidence_bundle=bundle
         )
 
-    if evidence_bundle is not None:
-        bundle_fundamentals = evidence_bundle.get("fundamentals", {})
+    if bundle is not None:
+        bundle_fundamentals = bundle.get("fundamentals", {})
         if ticker in bundle_fundamentals:
             financial_metrics = bundle_fundamentals[ticker]
             if isinstance(financial_metrics, list):
@@ -179,14 +182,15 @@ def search_line_items(
     evidence_bundle: dict | None = None,
 ) -> list[LineItem]:
     """Fetch line items from API."""
+    bundle = _resolve_bundle(evidence_bundle)
     if is_korean_ticker(ticker):
         from src.tools.api_kr import search_line_items_kr
         return search_line_items_kr(
-            ticker, line_items, end_date, period=period, limit=limit, evidence_bundle=evidence_bundle
+            ticker, line_items, end_date, period=period, limit=limit, evidence_bundle=bundle
         )
 
-    if evidence_bundle is not None:
-        bundle_line_items = evidence_bundle.get("line_items", {})
+    if bundle is not None:
+        bundle_line_items = bundle.get("line_items", {})
         if ticker in bundle_line_items:
             ticker_line_items = bundle_line_items[ticker]
             rows_by_key: dict[tuple, dict] = {}
@@ -249,14 +253,15 @@ def get_insider_trades(
     evidence_bundle: dict | None = None,
 ) -> list[InsiderTrade]:
     """Fetch insider trades from cache or API."""
+    bundle = _resolve_bundle(evidence_bundle)
     if is_korean_ticker(ticker):
         from src.tools.api_kr import get_insider_trades_kr
         return get_insider_trades_kr(
-            ticker, end_date, start_date=start_date, limit=limit, evidence_bundle=evidence_bundle
+            ticker, end_date, start_date=start_date, limit=limit, evidence_bundle=bundle
         )
 
-    if evidence_bundle is not None:
-        bundle_trades = evidence_bundle.get("insider_trades", {})
+    if bundle is not None:
+        bundle_trades = bundle.get("insider_trades", {})
         if ticker in bundle_trades:
             return [InsiderTrade(**row) for row in bundle_trades[ticker]]
 
@@ -327,14 +332,15 @@ def get_company_news(
     evidence_bundle: dict | None = None,
 ) -> list[CompanyNews]:
     """Fetch company news from cache or API."""
+    bundle = _resolve_bundle(evidence_bundle)
     if is_korean_ticker(ticker):
         from src.tools.api_kr import get_company_news_kr
         return get_company_news_kr(
-            ticker, end_date, start_date=start_date, limit=limit, evidence_bundle=evidence_bundle
+            ticker, end_date, start_date=start_date, limit=limit, evidence_bundle=bundle
         )
 
-    if evidence_bundle is not None:
-        bundle_news = evidence_bundle.get("company_news", {})
+    if bundle is not None:
+        bundle_news = bundle.get("company_news", {})
         if ticker in bundle_news:
             return [CompanyNews(**row) for row in bundle_news[ticker]]
 
@@ -403,12 +409,13 @@ def get_market_cap(
     evidence_bundle: dict | None = None,
 ) -> float | None:
     """Fetch market cap from the API."""
+    bundle = _resolve_bundle(evidence_bundle)
     if is_korean_ticker(ticker):
         from src.tools.api_kr import get_market_cap_kr
-        return get_market_cap_kr(ticker, end_date, evidence_bundle=evidence_bundle)
+        return get_market_cap_kr(ticker, end_date, evidence_bundle=bundle)
 
-    if evidence_bundle is not None:
-        bundle_market_caps = evidence_bundle.get("market_cap", {})
+    if bundle is not None:
+        bundle_market_caps = bundle.get("market_cap", {})
         if ticker in bundle_market_caps:
             return bundle_market_caps[ticker].get(end_date)
 

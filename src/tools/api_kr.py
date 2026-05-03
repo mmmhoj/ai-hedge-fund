@@ -27,6 +27,7 @@ from src.data.models import (
     LineItem,
     Price,
 )
+from src.tools.evidence_bundle_context import _resolve_bundle
 from src.tools.kis_client import KisClient
 
 logger = logging.getLogger(__name__)
@@ -201,8 +202,9 @@ def get_prices_kr(
     evidence_bundle: dict | None = None,
 ) -> list[Price]:
     """OHLCV history via pykrx (no KIS auth needed, no rate limit)."""
-    if evidence_bundle is not None:
-        bundle_prices = evidence_bundle.get("prices", {})
+    bundle = _resolve_bundle(evidence_bundle)
+    if bundle is not None:
+        bundle_prices = bundle.get("prices", {})
         if ticker in bundle_prices:
             return [Price(**row) for row in bundle_prices[ticker]]
 
@@ -239,8 +241,9 @@ def get_market_cap_kr(
     evidence_bundle: dict | None = None,
 ) -> float | None:
     """Market cap as of end_date via pykrx."""
-    if evidence_bundle is not None:
-        bundle_market_caps = evidence_bundle.get("market_cap", {})
+    bundle = _resolve_bundle(evidence_bundle)
+    if bundle is not None:
+        bundle_market_caps = bundle.get("market_cap", {})
         if ticker in bundle_market_caps:
             return bundle_market_caps[ticker].get(end_date)
 
@@ -294,8 +297,9 @@ def get_financial_metrics_kr(
     evidence_bundle: dict | None = None,
 ) -> list[FinancialMetrics]:
     """60-metric list for Korean ticker via KIS 4 ratio endpoints."""
-    if evidence_bundle is not None:
-        bundle_fundamentals = evidence_bundle.get("fundamentals", {})
+    bundle = _resolve_bundle(evidence_bundle)
+    if bundle is not None:
+        bundle_fundamentals = bundle.get("fundamentals", {})
         if ticker in bundle_fundamentals:
             financial_metrics = bundle_fundamentals[ticker]
             if isinstance(financial_metrics, list):
@@ -361,8 +365,9 @@ def search_line_items_kr(
     evidence_bundle: dict | None = None,
 ) -> list[LineItem]:
     """Dynamic line-item search over KIS balance-sheet + income-statement."""
-    if evidence_bundle is not None:
-        bundle_line_items = evidence_bundle.get("line_items", {})
+    bundle = _resolve_bundle(evidence_bundle)
+    if bundle is not None:
+        bundle_line_items = bundle.get("line_items", {})
         if ticker in bundle_line_items:
             ticker_line_items = bundle_line_items[ticker]
             rows_by_key: dict[tuple, dict] = {}
@@ -452,8 +457,9 @@ def get_insider_trades_kr(
     DART majorstock + executive holding filings to InsiderTrade with
     best-effort field shape.
     """
-    if evidence_bundle is not None:
-        bundle_trades = evidence_bundle.get("insider_trades", {})
+    bundle = _resolve_bundle(evidence_bundle)
+    if bundle is not None:
+        bundle_trades = bundle.get("insider_trades", {})
         if ticker in bundle_trades:
             return [InsiderTrade(**row) for row in bundle_trades[ticker]]
 
@@ -514,8 +520,9 @@ def get_company_news_kr(
     evidence_bundle: dict | None = None,
 ) -> list[CompanyNews]:
     """Company news via Naver Finance news listing (unauthenticated)."""
-    if evidence_bundle is not None:
-        bundle_news = evidence_bundle.get("company_news", {})
+    bundle = _resolve_bundle(evidence_bundle)
+    if bundle is not None:
+        bundle_news = bundle.get("company_news", {})
         if ticker in bundle_news:
             return [CompanyNews(**row) for row in bundle_news[ticker]]
 

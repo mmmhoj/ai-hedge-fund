@@ -5,6 +5,8 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 
 from src.main import create_workflow
+from src.tools.cost_tracker import track_costs
+from src.tools.evidence_bundle_context import use_bundle
 from src.utils.analysts import ANALYST_CONFIG
 
 router = APIRouter(prefix="/committee")
@@ -80,8 +82,6 @@ def _propagate_evidence_bundle_to_state(
     state: dict[str, Any],
     evidence_bundle: dict[str, Any] | None,
 ) -> None:
-    # TODO: Agent tool calls do not read this state field yet; bridge it into
-    # src/tools/api.py/api_kr.py via contextvars or pass it explicitly later.
     state.setdefault("data", {})["evidence_bundle"] = evidence_bundle
 
 
@@ -142,7 +142,6 @@ def _transform_analyst_signals(
 
 
 def _zero_cost_breakdown(agent_set: list[str]) -> CostBreakdown:
-    # TODO: Replace zero-cost placeholder with per-agent LangChain callback accounting.
     return CostBreakdown(
         total_usd=0.0,
         by_agent={agent: 0.0 for agent in agent_set},
@@ -229,9 +228,25 @@ async def run(request: CommitteeRequest) -> CommitteeResponse:
     _propagate_evidence_bundle_to_state(state, request.evidence_bundle)
 
     try:
-        final_state = agent.invoke(state)
+        with use_bundle(request.evidence_bundle), track_costs() as tracker:
+            final_state = agent.invoke(state)
         analyst_signals = final_state.get("data", {}).get("analyst_signals", {})
         signals = _transform_analyst_signals(analyst_signals, agent_set)
+        by_agent_full = tracker.by_agent_usd()
+        by_agent = {agent: by_agent_full.get(agent, 0.0) for agent in agent_set}
+        total_usd = tracker.total_usd
+        truncated = total_usd > request.cost_cap_usd
+        truncation_reason = (
+            f"committee cost ${total_usd:.4f} exceeded cap ${request.cost_cap_usd:.4f}"
+            if truncated
+            else None
+        )
+        cost_breakdown = CostBreakdown(
+            total_usd=round(total_usd, 6),
+            by_agent=by_agent,
+            truncated=truncated,
+            truncation_reason=truncation_reason,
+        )
     except Exception as exc:
         return _failed_response(agent_set, bundle_sha256, str(exc))
 
@@ -240,7 +255,7 @@ async def run(request: CommitteeRequest) -> CommitteeResponse:
         signals=signals,
         risk_notes=[],
         tax_notes=[],
-        cost_breakdown=_zero_cost_breakdown(agent_set),
+        cost_breakdown=cost_breakdown,
         agents_run=agent_set,
         bundle_sha256=bundle_sha256,
     )

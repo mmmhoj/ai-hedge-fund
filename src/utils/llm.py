@@ -7,6 +7,21 @@ from src.utils.progress import progress
 from src.graph.state import AgentState
 
 
+def _normalize_agent_id(agent_id: str) -> str:
+    def strip_hash_suffix(value: str) -> str:
+        if "_" not in value:
+            return value
+        prefix, suffix = value.rsplit("_", 1)
+        if len(suffix) == 6 and suffix.isalnum():
+            return prefix
+        return value
+
+    normalized = strip_hash_suffix(agent_id)
+    if normalized.endswith("_agent"):
+        normalized = normalized[: -len("_agent")]
+    return strip_hash_suffix(normalized)
+
+
 def call_llm(
     prompt: any,
     pydantic_model: type[BaseModel],
@@ -48,6 +63,15 @@ def call_llm(
     model_info = get_model_info(model_name, model_provider)
     llm = get_model(model_name, model_provider, api_keys)
 
+    from src.tools.cost_tracker import CommitteeCostCallback, get_current_tracker
+
+    invocation_config = None
+    tracker = get_current_tracker()
+    if tracker is not None and agent_name:
+        tracker.set_current_agent(_normalize_agent_id(agent_name))
+        callback = CommitteeCostCallback(tracker, model_name)
+        invocation_config = {"callbacks": [callback]}
+
     # For non-JSON support models, we can use structured output
     if not (model_info and not model_info.has_json_mode()):
         llm = llm.with_structured_output(
@@ -59,7 +83,10 @@ def call_llm(
     for attempt in range(max_retries):
         try:
             # Call the LLM
-            result = llm.invoke(prompt)
+            if invocation_config is not None:
+                result = llm.invoke(prompt, config=invocation_config)
+            else:
+                result = llm.invoke(prompt)
 
             # For non-JSON support models, we need to extract and parse the JSON manually
             if model_info and not model_info.has_json_mode():
