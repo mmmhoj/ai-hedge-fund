@@ -61,11 +61,22 @@ def _make_api_request(url: str, headers: dict, method: str = "GET", json_data: d
         return response
 
 
-def get_prices(ticker: str, start_date: str, end_date: str, api_key: str = None) -> list[Price]:
+def get_prices(
+    ticker: str,
+    start_date: str,
+    end_date: str,
+    api_key: str = None,
+    evidence_bundle: dict | None = None,
+) -> list[Price]:
     """Fetch price data from cache or API."""
     if is_korean_ticker(ticker):
         from src.tools.api_kr import get_prices_kr
-        return get_prices_kr(ticker, start_date, end_date)
+        return get_prices_kr(ticker, start_date, end_date, evidence_bundle=evidence_bundle)
+
+    if evidence_bundle is not None:
+        bundle_prices = evidence_bundle.get("prices", {})
+        if ticker in bundle_prices:
+            return [Price(**row) for row in bundle_prices[ticker]]
 
     # Create a cache key that includes all parameters to ensure exact matches
     cache_key = f"{ticker}_{start_date}_{end_date}"
@@ -107,11 +118,22 @@ def get_financial_metrics(
     period: str = "ttm",
     limit: int = 10,
     api_key: str = None,
+    evidence_bundle: dict | None = None,
 ) -> list[FinancialMetrics]:
     """Fetch financial metrics from cache or API."""
     if is_korean_ticker(ticker):
         from src.tools.api_kr import get_financial_metrics_kr
-        return get_financial_metrics_kr(ticker, end_date, period=period, limit=limit)
+        return get_financial_metrics_kr(
+            ticker, end_date, period=period, limit=limit, evidence_bundle=evidence_bundle
+        )
+
+    if evidence_bundle is not None:
+        bundle_fundamentals = evidence_bundle.get("fundamentals", {})
+        if ticker in bundle_fundamentals:
+            financial_metrics = bundle_fundamentals[ticker]
+            if isinstance(financial_metrics, list):
+                return [FinancialMetrics(**row) for row in financial_metrics[:limit]]
+            return [FinancialMetrics(**financial_metrics)]
 
     # Create a cache key that includes all parameters to ensure exact matches
     cache_key = f"{ticker}_{period}_{end_date}_{limit}"
@@ -154,11 +176,36 @@ def search_line_items(
     period: str = "ttm",
     limit: int = 10,
     api_key: str = None,
+    evidence_bundle: dict | None = None,
 ) -> list[LineItem]:
     """Fetch line items from API."""
     if is_korean_ticker(ticker):
         from src.tools.api_kr import search_line_items_kr
-        return search_line_items_kr(ticker, line_items, end_date, period=period, limit=limit)
+        return search_line_items_kr(
+            ticker, line_items, end_date, period=period, limit=limit, evidence_bundle=evidence_bundle
+        )
+
+    if evidence_bundle is not None:
+        bundle_line_items = evidence_bundle.get("line_items", {})
+        if ticker in bundle_line_items:
+            ticker_line_items = bundle_line_items[ticker]
+            rows_by_key: dict[tuple, dict] = {}
+            ordered_keys: list[tuple] = []
+            for line_item in line_items:
+                for row in ticker_line_items.get(line_item, []):
+                    row_key = (
+                        row.get("ticker"),
+                        row.get("report_period"),
+                        row.get("period"),
+                        row.get("currency"),
+                    )
+                    if row_key not in rows_by_key:
+                        rows_by_key[row_key] = row.copy()
+                        ordered_keys.append(row_key)
+                    else:
+                        rows_by_key[row_key].update(row)
+            rows = [rows_by_key[row_key] for row_key in ordered_keys]
+            return [LineItem(**row) for row in rows[:limit]]
 
     # If not in cache or insufficient data, fetch from API
     headers = {}
@@ -199,11 +246,19 @@ def get_insider_trades(
     start_date: str | None = None,
     limit: int = 1000,
     api_key: str = None,
+    evidence_bundle: dict | None = None,
 ) -> list[InsiderTrade]:
     """Fetch insider trades from cache or API."""
     if is_korean_ticker(ticker):
         from src.tools.api_kr import get_insider_trades_kr
-        return get_insider_trades_kr(ticker, end_date, start_date=start_date, limit=limit)
+        return get_insider_trades_kr(
+            ticker, end_date, start_date=start_date, limit=limit, evidence_bundle=evidence_bundle
+        )
+
+    if evidence_bundle is not None:
+        bundle_trades = evidence_bundle.get("insider_trades", {})
+        if ticker in bundle_trades:
+            return [InsiderTrade(**row) for row in bundle_trades[ticker]]
 
     # Create a cache key that includes all parameters to ensure exact matches
     cache_key = f"{ticker}_{start_date or 'none'}_{end_date}_{limit}"
@@ -269,11 +324,19 @@ def get_company_news(
     start_date: str | None = None,
     limit: int = 1000,
     api_key: str = None,
+    evidence_bundle: dict | None = None,
 ) -> list[CompanyNews]:
     """Fetch company news from cache or API."""
     if is_korean_ticker(ticker):
         from src.tools.api_kr import get_company_news_kr
-        return get_company_news_kr(ticker, end_date, start_date=start_date, limit=limit)
+        return get_company_news_kr(
+            ticker, end_date, start_date=start_date, limit=limit, evidence_bundle=evidence_bundle
+        )
+
+    if evidence_bundle is not None:
+        bundle_news = evidence_bundle.get("company_news", {})
+        if ticker in bundle_news:
+            return [CompanyNews(**row) for row in bundle_news[ticker]]
 
     # Create a cache key that includes all parameters to ensure exact matches
     cache_key = f"{ticker}_{start_date or 'none'}_{end_date}_{limit}"
@@ -337,11 +400,17 @@ def get_market_cap(
     ticker: str,
     end_date: str,
     api_key: str = None,
+    evidence_bundle: dict | None = None,
 ) -> float | None:
     """Fetch market cap from the API."""
     if is_korean_ticker(ticker):
         from src.tools.api_kr import get_market_cap_kr
-        return get_market_cap_kr(ticker, end_date)
+        return get_market_cap_kr(ticker, end_date, evidence_bundle=evidence_bundle)
+
+    if evidence_bundle is not None:
+        bundle_market_caps = evidence_bundle.get("market_cap", {})
+        if ticker in bundle_market_caps:
+            return bundle_market_caps[ticker].get(end_date)
 
     # Check if end_date is today
     if end_date == datetime.datetime.now().strftime("%Y-%m-%d"):
@@ -386,6 +455,12 @@ def prices_to_df(prices: list[Price]) -> pd.DataFrame:
 
 
 # Update the get_price_data function to use the new functions
-def get_price_data(ticker: str, start_date: str, end_date: str, api_key: str = None) -> pd.DataFrame:
-    prices = get_prices(ticker, start_date, end_date, api_key=api_key)
+def get_price_data(
+    ticker: str,
+    start_date: str,
+    end_date: str,
+    api_key: str = None,
+    evidence_bundle: dict | None = None,
+) -> pd.DataFrame:
+    prices = get_prices(ticker, start_date, end_date, api_key=api_key, evidence_bundle=evidence_bundle)
     return prices_to_df(prices)

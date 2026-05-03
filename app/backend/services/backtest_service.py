@@ -57,6 +57,11 @@ class BacktestService:
         self.request = request
         self.portfolio_values = []
 
+    def _get_evidence_bundle(self) -> Optional[dict]:
+        if isinstance(self.request, dict):
+            return self.request.get("evidence_bundle")
+        return getattr(self.request, "evidence_bundle", None)
+
     def execute_trade(self, ticker: str, action: str, quantity: float, current_price: float) -> int:
         """
         Execute trades with support for both long and short positions.
@@ -228,12 +233,39 @@ class BacktestService:
         start_date_dt = end_date_dt - relativedelta(years=1)
         start_date_str = start_date_dt.strftime("%Y-%m-%d")
         api_key = self.request.api_keys.get("FINANCIAL_DATASETS_API_KEY")
+        evidence_bundle = self._get_evidence_bundle()
 
         for ticker in self.tickers:
-            get_prices(ticker, start_date_str, self.end_date, api_key=api_key)
-            get_financial_metrics(ticker, self.end_date, limit=10, api_key=api_key)
-            get_insider_trades(ticker, self.end_date, start_date=self.start_date, limit=1000, api_key=api_key)
-            get_company_news(ticker, self.end_date, start_date=self.start_date, limit=1000, api_key=api_key)
+            get_prices(
+                ticker,
+                start_date_str,
+                self.end_date,
+                api_key=api_key,
+                evidence_bundle=evidence_bundle,
+            )
+            get_financial_metrics(
+                ticker,
+                self.end_date,
+                limit=10,
+                api_key=api_key,
+                evidence_bundle=evidence_bundle,
+            )
+            get_insider_trades(
+                ticker,
+                self.end_date,
+                start_date=self.start_date,
+                limit=1000,
+                api_key=api_key,
+                evidence_bundle=evidence_bundle,
+            )
+            get_company_news(
+                ticker,
+                self.end_date,
+                start_date=self.start_date,
+                limit=1000,
+                api_key=api_key,
+                evidence_bundle=evidence_bundle,
+            )
 
     def _update_performance_metrics(self, performance_metrics: Dict[str, Any]):
         """Update performance metrics using daily returns."""
@@ -289,6 +321,7 @@ class BacktestService:
         """
         # Pre-fetch all data at the start
         self.prefetch_data()
+        evidence_bundle = self._get_evidence_bundle()
 
         dates = pd.date_range(self.start_date, self.end_date, freq="B")
         performance_metrics = {
@@ -336,7 +369,12 @@ class BacktestService:
 
                 for ticker in self.tickers:
                     try:
-                        price_data = get_price_data(ticker, previous_date_str, current_date_str)
+                        price_data = get_price_data(
+                            ticker,
+                            previous_date_str,
+                            current_date_str,
+                            evidence_bundle=evidence_bundle,
+                        )
                         if price_data.empty:
                             missing_data = True
                             break

@@ -93,19 +93,36 @@ LINE_ITEM_SOURCE: dict[str, tuple[str, str]] = {
 }
 
 
-def get_prices_kr(ticker: str, start_date: str, end_date: str) -> list[Price]:
+def get_prices_kr(
+    ticker: str,
+    start_date: str,
+    end_date: str,
+    evidence_bundle: dict | None = None,
+) -> list[Price]:
     """OHLCV history via pykrx (no KIS auth needed, no rate limit)."""
-    raise NotImplementedError("Step 2: implement via pykrx.get_market_ohlcv_by_date")
+    if evidence_bundle is not None:
+        bundle_prices = evidence_bundle.get("prices", {})
+        if ticker in bundle_prices:
+            return [Price(**row) for row in bundle_prices[ticker]]
+    raise NotImplementedError("Step 3.5: implement via pykrx.get_market_ohlcv_by_date")
 
 
-def get_market_cap_kr(ticker: str, end_date: str) -> float | None:
+def get_market_cap_kr(
+    ticker: str,
+    end_date: str,
+    evidence_bundle: dict | None = None,
+) -> float | None:
     """Market cap as of end_date via pykrx."""
-    raise NotImplementedError("Step 2: implement via pykrx.get_market_cap_by_date")
+    if evidence_bundle is not None:
+        bundle_market_caps = evidence_bundle.get("market_cap", {})
+        if ticker in bundle_market_caps:
+            return bundle_market_caps[ticker].get(end_date)
+    raise NotImplementedError("Step 3.5: implement via pykrx.get_market_cap_by_date")
 
 
 def get_company_facts_kr(ticker: str) -> CompanyFacts | None:
     """Company metadata via DART OpenDartReader."""
-    raise NotImplementedError("Step 2: implement via OpenDartReader.company")
+    raise NotImplementedError("Step 3.5: implement via OpenDartReader.company")
 
 
 def get_financial_metrics_kr(
@@ -113,6 +130,7 @@ def get_financial_metrics_kr(
     end_date: str,
     period: str = "ttm",
     limit: int = 10,
+    evidence_bundle: dict | None = None,
 ) -> list[FinancialMetrics]:
     """60-metric list for Korean ticker.
 
@@ -121,7 +139,14 @@ def get_financial_metrics_kr(
     metrics (EV/EBITDA, FCF_yield, PEG, ROIC, DSO, ...), and collapsing
     quarterly rows to TTM when period == "ttm".
     """
-    raise NotImplementedError("Step 2: assemble from KIS 4 ratio endpoints + derived")
+    if evidence_bundle is not None:
+        bundle_fundamentals = evidence_bundle.get("fundamentals", {})
+        if ticker in bundle_fundamentals:
+            financial_metrics = bundle_fundamentals[ticker]
+            if isinstance(financial_metrics, list):
+                return [FinancialMetrics(**row) for row in financial_metrics[:limit]]
+            return [FinancialMetrics(**financial_metrics)]
+    raise NotImplementedError("Step 3.5: assemble from KIS 4 ratio endpoints + derived")
 
 
 def search_line_items_kr(
@@ -130,6 +155,7 @@ def search_line_items_kr(
     end_date: str,
     period: str = "ttm",
     limit: int = 10,
+    evidence_bundle: dict | None = None,
 ) -> list[LineItem]:
     """Dynamic line-item search over KIS balance-sheet + income-statement.
 
@@ -137,7 +163,28 @@ def search_line_items_kr(
     endpoint once per (ticker, period), and returns LineItem rows (one per
     reporting period) with the requested subset attached via dynamic fields.
     """
-    raise NotImplementedError("Step 2: map requested names via LINE_ITEM_SOURCE")
+    if evidence_bundle is not None:
+        bundle_line_items = evidence_bundle.get("line_items", {})
+        if ticker in bundle_line_items:
+            ticker_line_items = bundle_line_items[ticker]
+            rows_by_key: dict[tuple, dict] = {}
+            ordered_keys: list[tuple] = []
+            for line_item in line_items:
+                for row in ticker_line_items.get(line_item, []):
+                    row_key = (
+                        row.get("ticker"),
+                        row.get("report_period"),
+                        row.get("period"),
+                        row.get("currency"),
+                    )
+                    if row_key not in rows_by_key:
+                        rows_by_key[row_key] = row.copy()
+                        ordered_keys.append(row_key)
+                    else:
+                        rows_by_key[row_key].update(row)
+            rows = [rows_by_key[row_key] for row_key in ordered_keys]
+            return [LineItem(**row) for row in rows[:limit]]
+    raise NotImplementedError("Step 3.5: map requested names via LINE_ITEM_SOURCE")
 
 
 def get_insider_trades_kr(
@@ -145,6 +192,7 @@ def get_insider_trades_kr(
     end_date: str,
     start_date: str | None = None,
     limit: int = 1000,
+    evidence_bundle: dict | None = None,
 ) -> list[InsiderTrade]:
     """Major-shareholder reports (5% rule) from DART.
 
@@ -152,7 +200,11 @@ def get_insider_trades_kr(
     DART `majorstock` / `elestock` filings into the InsiderTrade schema with
     a best-effort shape — transaction details may be partial.
     """
-    raise NotImplementedError("Step 2: implement via OpenDartReader major-stock filings")
+    if evidence_bundle is not None:
+        bundle_trades = evidence_bundle.get("insider_trades", {})
+        if ticker in bundle_trades:
+            return [InsiderTrade(**row) for row in bundle_trades[ticker]]
+    raise NotImplementedError("Step 3.5: implement via OpenDartReader major-stock filings")
 
 
 def get_company_news_kr(
@@ -160,6 +212,11 @@ def get_company_news_kr(
     end_date: str,
     start_date: str | None = None,
     limit: int = 100,
+    evidence_bundle: dict | None = None,
 ) -> list[CompanyNews]:
     """Company news via Naver Finance RSS (unauthenticated)."""
-    raise NotImplementedError("Step 2: scrape Naver Finance RSS for ticker")
+    if evidence_bundle is not None:
+        bundle_news = evidence_bundle.get("company_news", {})
+        if ticker in bundle_news:
+            return [CompanyNews(**row) for row in bundle_news[ticker]]
+    raise NotImplementedError("Step 3.5: scrape Naver Finance RSS for ticker")
