@@ -75,6 +75,31 @@
     "provider": "OpenRouter"
   },
   {
+    "display_name": "Llama 3.3 70B (free)",
+    "model_name": "meta-llama/llama-3.3-70b-instruct:free",
+    "provider": "OpenRouter"
+  },
+  {
+    "display_name": "Llama 3.3 70B",
+    "model_name": "meta-llama/llama-3.3-70b-instruct",
+    "provider": "OpenRouter"
+  },
+  {
+    "display_name": "Qwen3 Next 80B (free)",
+    "model_name": "qwen/qwen3-next-80b-a3b-instruct:free",
+    "provider": "OpenRouter"
+  },
+  {
+    "display_name": "GPT-OSS 120B (free)",
+    "model_name": "openai/gpt-oss-120b:free",
+    "provider": "OpenRouter"
+  },
+  {
+    "display_name": "GLM-4.5 Air (free)",
+    "model_name": "z-ai/glm-4.5-air:free",
+    "provider": "OpenRouter"
+  },
+  {
     "display_name": "GigaChat-2-Max",
     "model_name": "GigaChat-2-Max",
     "provider": "GigaChat"
