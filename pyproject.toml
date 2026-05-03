@@ -62,5 +62,8 @@ include = '\.pyi?$'
 profile = "black"
 force_alphabetical_sort_within_sections = true
 
+[tool.pytest.ini_options]
+markers = ["live: tests that call live external data sources"]
+
 [tool.poetry.scripts]
 backtester = "src.backtesting.cli:main"

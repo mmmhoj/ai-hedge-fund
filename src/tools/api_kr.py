@@ -16,6 +16,8 @@ KIS credentials are provisioned.
 """
 from __future__ import annotations
 
+import datetime as dt
+import logging
 import os
 from dataclasses import dataclass
 
@@ -27,6 +29,8 @@ from src.data.models import (
     LineItem,
     Price,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -104,7 +108,32 @@ def get_prices_kr(
         bundle_prices = evidence_bundle.get("prices", {})
         if ticker in bundle_prices:
             return [Price(**row) for row in bundle_prices[ticker]]
-    raise NotImplementedError("Step 3.5: implement via pykrx.get_market_ohlcv_by_date")
+
+    try:
+        from pykrx import stock
+
+        start_yyyymmdd = start_date.replace("-", "")
+        end_yyyymmdd = end_date.replace("-", "")
+        df = stock.get_market_ohlcv_by_date(start_yyyymmdd, end_yyyymmdd, ticker)
+        if df.empty:
+            return []
+
+        prices = []
+        for trading_date, row in df.sort_index().iterrows():
+            prices.append(
+                Price(
+                    open=float(row["시가"]),
+                    close=float(row["종가"]),
+                    high=float(row["고가"]),
+                    low=float(row["저가"]),
+                    volume=int(row["거래량"]),
+                    time=trading_date.strftime("%Y-%m-%dT00:00:00Z"),
+                )
+            )
+        return prices
+    except Exception as e:
+        logger.warning("Failed to fetch pykrx OHLCV for %s: %s", ticker, e)
+        return []
 
 
 def get_market_cap_kr(
@@ -117,7 +146,26 @@ def get_market_cap_kr(
         bundle_market_caps = evidence_bundle.get("market_cap", {})
         if ticker in bundle_market_caps:
             return bundle_market_caps[ticker].get(end_date)
-    raise NotImplementedError("Step 3.5: implement via pykrx.get_market_cap_by_date")
+
+    try:
+        from pykrx import stock
+
+        requested_date = dt.datetime.strptime(end_date, "%Y-%m-%d").date()
+        start_yyyymmdd = (requested_date - dt.timedelta(days=10)).strftime("%Y%m%d")
+        end_yyyymmdd = requested_date.strftime("%Y%m%d")
+        df = stock.get_market_cap_by_date(start_yyyymmdd, end_yyyymmdd, ticker)
+        if df.empty:
+            return None
+
+        df = df.sort_index()
+        latest_date = df.index[-1].date()
+        if (requested_date - latest_date).days > 5:
+            return None
+
+        return float(df.iloc[-1]["시가총액"])
+    except Exception as e:
+        logger.warning("Failed to fetch pykrx market cap for %s: %s", ticker, e)
+        return None
 
 
 def get_company_facts_kr(ticker: str) -> CompanyFacts | None:
