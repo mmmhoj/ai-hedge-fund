@@ -37,11 +37,16 @@ class FDClient:
         self,
         api_key: str | None = None,
         timeout: float = 30.0,
+        openbb_api_base: str | None = None,
     ) -> None:
         self._api_key = api_key or os.environ.get("FINANCIAL_DATASETS_API_KEY", "")
         self._timeout = timeout
         self._session = requests.Session()
         self._session.headers["X-API-Key"] = self._api_key
+        openbb_fallback_enabled = os.environ.get("OPENBB_PRICE_FALLBACK", "1").lower() not in {"0", "false", "no"}
+        fallback_base = openbb_api_base if openbb_api_base is not None else os.environ.get("OPENBB_API_BASE", "http://127.0.0.1:6900/api/v1")
+        self._openbb_api_base = fallback_base.rstrip("/") if openbb_fallback_enabled and fallback_base else ""
+        self._openbb_price_provider = os.environ.get("OPENBB_PRICE_PROVIDER", "yfinance")
 
     # ------------------------------------------------------------------
     # Context manager
@@ -70,13 +75,25 @@ class FDClient:
         interval_multiplier: int = 1,
     ) -> list[Price]:
         """Fetch OHLC price bars."""
-        data = self._get("/prices/", {
-            "ticker": ticker,
-            "interval": interval,
-            "interval_multiplier": interval_multiplier,
-            "start_date": start_date,
-            "end_date": end_date,
-        }, response_key="prices")
+        data = self._get(
+            "/prices/",
+            {
+                "ticker": ticker,
+                "interval": interval,
+                "interval_multiplier": interval_multiplier,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+            response_key="prices",
+        )
+        if not data:
+            data = self._get_openbb_prices(
+                ticker,
+                start_date,
+                end_date,
+                interval=interval,
+                interval_multiplier=interval_multiplier,
+            )
         return [Price(**row) for row in data] if data else []
 
     # ------------------------------------------------------------------
@@ -205,6 +222,89 @@ class FDClient:
         if resp is None:
             return None
         return resp.json().get(response_key)
+
+    def _get_openbb_prices(
+        self,
+        ticker: str,
+        start_date: str,
+        end_date: str,
+        *,
+        interval: str,
+        interval_multiplier: int,
+    ) -> list[dict] | None:
+        """Fetch daily prices from local OpenBB when FD price coverage is unavailable."""
+        if not self._openbb_api_base:
+            return None
+        if interval != "day" or interval_multiplier != 1:
+            logger.warning(
+                "OpenBB price fallback only supports daily bars; got %sx%s",
+                interval_multiplier,
+                interval,
+            )
+            return None
+
+        try:
+            resp = requests.get(
+                f"{self._openbb_api_base}/equity/price/historical",
+                params={
+                    "symbol": ticker,
+                    "provider": self._openbb_price_provider,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                },
+                timeout=min(self._timeout, 15.0),
+            )
+        except requests.RequestException as exc:
+            logger.warning("OpenBB price fallback failed for %s: %s", ticker, exc)
+            return None
+
+        if resp.status_code >= 400:
+            logger.warning("OpenBB price fallback for %s returned %d", ticker, resp.status_code)
+            return None
+
+        try:
+            payload = resp.json()
+        except ValueError as exc:
+            logger.warning("OpenBB price fallback returned non-JSON for %s: %s", ticker, exc)
+            return None
+
+        rows = payload.get("results")
+        if not isinstance(rows, list):
+            return None
+
+        prices: list[dict] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            date_value = row.get("date") or row.get("time")
+            if date_value is None or any(row.get(field) is None for field in ("open", "close", "high", "low")):
+                continue
+            time_value = str(date_value)
+            if "T" not in time_value:
+                time_value = f"{time_value[:10]}T00:00:00"
+            try:
+                volume = int(row.get("volume") or 0)
+            except (TypeError, ValueError):
+                volume = 0
+            prices.append(
+                {
+                    "open": float(row["open"]),
+                    "close": float(row["close"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "volume": volume,
+                    "time": time_value,
+                }
+            )
+
+        if prices:
+            logger.info(
+                "Using OpenBB %s price fallback for %s (%d bars)",
+                self._openbb_price_provider,
+                ticker,
+                len(prices),
+            )
+        return prices
 
     def _request(
         self,

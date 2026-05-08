@@ -28,7 +28,7 @@ Data (FD API) → Signals → Features → Portfolio Construction → Risk Manag
 - **Costs from day one.** Every backtest includes a transaction cost model. No frictionless fantasies.
 - **Validation built in.** CPCV and PBO are first-class citizens, not afterthoughts. If a signal can't survive combinatorial purged validation, it doesn't ship.
 - **Point-in-time by construction.** The data layer enforces that no future information leaks into historical analysis.
-- **Daily frequency.** Built for daily-bar strategies on US equities using [Financial Datasets](https://financialdatasets.ai) as the sole data provider.
+- **Daily frequency.** Built for daily-bar strategies on US equities. Financial Datasets is the primary data provider; price history falls back to the local OpenBB API (`OPENBB_API_BASE`, default `http://127.0.0.1:6900/api/v1`) with `OPENBB_PRICE_PROVIDER` (default `yfinance`) when FD price coverage is unavailable.
 
 ## Data Models
 
