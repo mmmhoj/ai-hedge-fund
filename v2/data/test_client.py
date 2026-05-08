@@ -1,5 +1,6 @@
 """Week 1 data exploration — pull and inspect FD data for 5 tickers."""
 
+import os
 import pytest
 
 from v2.data import FDClient
@@ -7,6 +8,11 @@ from v2.data import FDClient
 TICKERS = ["AAPL", "MSFT", "NVDA", "JPM", "XOM"]
 PRICE_START = "2024-01-01"
 PRICE_END = "2026-04-15"
+
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("FINANCIAL_DATASETS_API_KEY"),
+    reason="live Financial Datasets smoke tests require FINANCIAL_DATASETS_API_KEY",
+)
 
 
 @pytest.fixture(scope="module")
@@ -42,7 +48,7 @@ def test_financial_metrics(fd: FDClient, ticker: str) -> None:
 def test_earnings(fd: FDClient, ticker: str) -> None:
     earnings = fd.get_earnings(ticker)
     assert earnings is not None, f"No earnings for {ticker}"
-    print(f"  {ticker} earnings: period={earnings.fiscal_period}  report={earnings.report_period}")
+    print(f"  {ticker} earnings: report={earnings.report_period}  fiscal={earnings.fiscal_period}")
     if earnings.quarterly:
         q = earnings.quarterly
         print(f"    Q: rev={q.revenue}  EPS={q.earnings_per_share}  surprise={q.eps_surprise}")
@@ -70,3 +76,21 @@ def test_company_facts(fd: FDClient, ticker: str) -> None:
     assert facts is not None, f"No facts for {ticker}"
     assert facts.sector is not None, f"No sector for {ticker}"
     print(f"  {ticker}: {facts.name}  sector={facts.sector}  exchange={facts.exchange}")
+
+
+@pytest.mark.parametrize("ticker", TICKERS)
+def test_earnings_history(fd: FDClient, ticker: str) -> None:
+    records = fd.get_earnings_history(ticker, limit=4)
+    assert len(records) >= 1, f"No earnings history for {ticker}"
+
+    valid_source_types = {"8-K", "10-Q", "10-K", "20-F"}
+    for r in records:
+        assert r.source_type in valid_source_types, f"Bad source_type: {r.source_type}"
+        if r.filing_datetime is not None:
+            assert r.filing_date == r.filing_datetime[:10], (
+                f"filing_date/datetime mismatch: {r.filing_date} vs {r.filing_datetime}"
+            )
+
+    print(f"  {ticker} earnings history: {len(records)} records")
+    for r in records:
+        print(f"    {r.report_period}  {r.source_type:5s}  {r.filing_date}  q={'yes' if r.quarterly else 'no'}  a={'yes' if r.annual else 'no'}")
